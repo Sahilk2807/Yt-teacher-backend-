@@ -1,14 +1,16 @@
-# This is the corrected render.yaml file for the yt-teacher-backend service.
+# This is the definitive render.yaml configuration
 
+# We first define the buildpack we need globally
+buildpacks:
+  - https://github.com/jontewks/puppeteer-heroku-buildpack
+
+# Then we define our service
 services:
   - type: web
     name: yt-teacher-backend
     env: node
     plan: free
-    # The buildCommand is updated to resolve the dependency conflict.
-    buildCommand: "npm install --legacy-peer-deps"
+    # We point the build command to our new script
+    buildCommand: "./render-build.sh"
     startCommand: "node server.js"
     healthCheckPath: /
-    # The buildpack is required to install Google Chrome for Puppeteer.
-    buildpacks:
-      - https://github.com/jontewks/puppeteer-heroku-buildpack
