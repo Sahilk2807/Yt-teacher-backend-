@@ -19,30 +19,27 @@ app.get('/api/analyze', async (req, res) => {
     let browser = null;
 
     try {
-        // Launch Puppeteer with settings compatible with Render's free tier
+        // =========================================================================
+        // == THIS IS THE CRITICAL FIX - WE ARE ADDING THE executablePath ==
+        // =========================================================================
         browser = await puppeteer.launch({
             args: chromium.args,
             defaultViewport: chromium.defaultViewport,
+            // We tell puppeteer-core where to find the browser installed by the buildpack
             executablePath: await chromium.executablePath,
             headless: chromium.headless,
             ignoreHTTPSErrors: true,
         });
 
         const page = await browser.newPage();
-        await page.goto(youtubeUrl, { waitUntil: 'networkidle2' }); // Wait until the page is fully loaded
+        await page.goto(youtubeUrl, { waitUntil: 'networkidle2' });
 
-        // Scrape the data after the page has loaded
         const result = await page.evaluate(() => {
-            // Helper function to extract text
             const getText = (selector) => document.querySelector(selector)?.innerText.trim() || 'N/A';
 
             const channelName = getText('ytd-channel-name #text');
-            
-            // This is a complex selector to get stats robustly
             const subscriberCount = getText('#subscriber-count');
             const videoCount = getText('#videos-count');
-
-            // Find all metadata spans and then find the one with "views"
             const metaSpans = Array.from(document.querySelectorAll('#description-container #metadata-container span.inline-metadata-item'));
             const viewsSpan = metaSpans.find(span => span.innerText.includes('views'));
             const totalViews = viewsSpan ? viewsSpan.innerText : 'N/A';
@@ -72,10 +69,10 @@ app.get('/api/analyze', async (req, res) => {
 
     } catch (error) {
         console.error("Error during Puppeteer analysis:", error.message);
-        res.status(500).json({ error: 'Failed to analyze the URL. It might be private or invalid.' });
+        res.status(500).json({ error: 'Failed to analyze the URL. This can happen if the page structure has changed or the URL is invalid.' });
     } finally {
         if (browser !== null) {
-            await browser.close(); // Always close the browser
+            await browser.close();
         }
     }
 });
