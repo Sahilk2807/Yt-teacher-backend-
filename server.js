@@ -1,67 +1,85 @@
-// server.js
-
 const express = require('express');
-const axios = require('axios');
-const cheerio = require('cheerio');
 const cors = require('cors');
+const puppeteer = require('puppeteer-core');
+const chromium = require('chrome-aws-lambda');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Use CORS to allow requests from your front-end
 app.use(cors());
 
-// The main API endpoint
+// The upgraded API endpoint using Puppeteer
 app.get('/api/analyze', async (req, res) => {
     const youtubeUrl = req.query.url;
 
-    if (!youtubeUrl || !youtubeUrl.includes('youtube.com')) {
-        return res.status(400).json({ error: 'Please provide a valid YouTube URL.' });
+    if (!youtubeUrl || !youtubeUrl.includes('youtube.com/')) {
+        return res.status(400).json({ error: 'Please provide a valid YouTube Channel URL.' });
     }
+    
+    let browser = null;
 
     try {
-        const { data } = await axios.get(youtubeUrl, {
-            headers: { // Use a browser user-agent to avoid being blocked
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            }
+        // Launch Puppeteer with settings compatible with Render's free tier
+        browser = await puppeteer.launch({
+            args: chromium.args,
+            defaultViewport: chromium.defaultViewport,
+            executablePath: await chromium.executablePath,
+            headless: chromium.headless,
+            ignoreHTTPSErrors: true,
         });
 
-        const $ = cheerio.load(data);
+        const page = await browser.newPage();
+        await page.goto(youtubeUrl, { waitUntil: 'networkidle2' }); // Wait until the page is fully loaded
 
-        // --- Data Extraction Logic ---
-        const channelName = $('meta[property="og:title"]').attr('content') || 'N/A';
-        const isMonetized = data.includes('"is_monetization_enabled":true');
-        const tags = $('meta[name="keywords"]').attr('content')?.split(', ').filter(tag => tag) || [];
-        const thumbnail = $('meta[property="og:image"]').attr('content') || '';
-        const channelUrl = $('meta[property="og:url"]').attr('content') || '';
-        const channelId = channelUrl.includes('/channel/') ? channelUrl.split('/channel/')[1] : 'Could not find Channel ID';
-        
-        const result = {
-            monetization: {
-                status: isMonetized ? 'Likely Enabled' : 'Likely Disabled',
-                checked: true,
-            },
-            tags: tags,
-            channelId: channelId,
-            thumbnail: thumbnail,
-            earnings: { low: 'N/A', high: 'N/A' }, // Accurate earnings are not possible via scraping
-            shadowban: { status: 'Cannot be determined', checked: false }, // Accurate shadowban detection is not possible via scraping
-            channelInfo: {
-                name: channelName,
-                subscribers: 'N/A', 
-                totalViews: 'N/A',
-                videoCount: 'N/A'
-            }
-        };
+        // Scrape the data after the page has loaded
+        const result = await page.evaluate(() => {
+            // Helper function to extract text
+            const getText = (selector) => document.querySelector(selector)?.innerText.trim() || 'N/A';
+
+            const channelName = getText('ytd-channel-name #text');
+            
+            // This is a complex selector to get stats robustly
+            const subscriberCount = getText('#subscriber-count');
+            const videoCount = getText('#videos-count');
+
+            // Find all metadata spans and then find the one with "views"
+            const metaSpans = Array.from(document.querySelectorAll('#description-container #metadata-container span.inline-metadata-item'));
+            const viewsSpan = metaSpans.find(span => span.innerText.includes('views'));
+            const totalViews = viewsSpan ? viewsSpan.innerText : 'N/A';
+
+            const isMonetized = document.documentElement.innerHTML.includes('"is_monetization_enabled":true');
+            const tags = document.querySelector('meta[name="keywords"]')?.getAttribute('content')?.split(', ').filter(tag => tag) || [];
+            const thumbnail = document.querySelector('meta[property="og:image"]')?.getAttribute('content') || '';
+            const channelId = document.querySelector('meta[property="og:url"]')?.getAttribute('content')?.split('/channel/')[1] || 'N/A';
+            
+            return {
+                monetization: { status: isMonetized ? 'Likely Enabled' : 'Likely Disabled', checked: true },
+                tags,
+                channelId,
+                thumbnail,
+                earnings: { low: 'N/A', high: 'N/A' },
+                shadowban: { status: 'Cannot be determined', checked: false },
+                channelInfo: {
+                    name: channelName,
+                    subscribers: subscriberCount,
+                    totalViews: totalViews,
+                    videoCount: videoCount
+                }
+            };
+        });
 
         res.json(result);
 
     } catch (error) {
-        console.error("Error during analysis:", error.message);
-        res.status(500).json({ error: 'Failed to fetch or analyze the URL. It might be private, invalid, or a video link.' });
+        console.error("Error during Puppeteer analysis:", error.message);
+        res.status(500).json({ error: 'Failed to analyze the URL. It might be private or invalid.' });
+    } finally {
+        if (browser !== null) {
+            await browser.close(); // Always close the browser
+        }
     }
 });
 
 app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+    console.log(`Upgraded server with Puppeteer is running on port ${PORT}`);
 });
