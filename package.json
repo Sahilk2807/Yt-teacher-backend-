@@ -1,9 +1,7 @@
-
-
 {
-  "name": "youtube-toolkit-backend",
+  "name": "youtube-toolkit-backend-puppeteer",
   "version": "1.0.0",
-  "description": "Backend proxy for YouTube ToolKit",
+  "description": "Upgraded backend proxy for YouTube ToolKit using Puppeteer",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -12,6 +10,8 @@
     "axios": "^1.6.8",
     "cheerio": "^1.0.0-rc.12",
     "cors": "^2.8.5",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "puppeteer-core": "^19.7.2",
+    "chrome-aws-lambda": "^10.1.0"
   }
 }
