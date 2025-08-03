@@ -8,7 +8,6 @@ const PORT = process.env.PORT || 3001;
 
 app.use(cors());
 
-// The upgraded API endpoint using Puppeteer
 app.get('/api/analyze', async (req, res) => {
     const youtubeUrl = req.query.url;
 
@@ -19,33 +18,38 @@ app.get('/api/analyze', async (req, res) => {
     let browser = null;
 
     try {
-        // =========================================================================
-        // == THIS IS THE CRITICAL FIX - WE ARE ADDING THE executablePath ==
-        // =========================================================================
+        const executablePath = await chromium.executablePath;
+
+        // Fallback check: If the executable path is not found, throw a clear error.
+        if (!executablePath) {
+          throw new Error('Chromium executable not found, buildpack may have failed.');
+        }
+
         browser = await puppeteer.launch({
             args: chromium.args,
             defaultViewport: chromium.defaultViewport,
-            // We tell puppeteer-core where to find the browser installed by the buildpack
-            executablePath: await chromium.executablePath,
+            executablePath: executablePath,
             headless: chromium.headless,
             ignoreHTTPSErrors: true,
         });
 
         const page = await browser.newPage();
-        await page.goto(youtubeUrl, { waitUntil: 'networkidle2' });
+        await page.goto(youtubeUrl, { waitUntil: 'networkidle2', timeout: 60000 }); // Added a 60s timeout here too
 
         const result = await page.evaluate(() => {
             const getText = (selector) => document.querySelector(selector)?.innerText.trim() || 'N/A';
 
-            const channelName = getText('ytd-channel-name #text');
+            const channelName = getText('ytd-channel-name #text') || getText('yt-formatted-string#text.ytd-channel-name');
             const subscriberCount = getText('#subscriber-count');
             const videoCount = getText('#videos-count');
+            
             const metaSpans = Array.from(document.querySelectorAll('#description-container #metadata-container span.inline-metadata-item'));
-            const viewsSpan = metaSpans.find(span => span.innerText.includes('views'));
+            const viewsSpan = metaSpans.find(span => span.innerText.toLowerCase().includes('views'));
             const totalViews = viewsSpan ? viewsSpan.innerText : 'N/A';
 
-            const isMonetized = document.documentElement.innerHTML.includes('"is_monetization_enabled":true');
-            const tags = document.querySelector('meta[name="keywords"]')?.getAttribute('content')?.split(', ').filter(tag => tag) || [];
+            const pageContent = document.documentElement.innerHTML;
+            const isMonetized = pageContent.includes('"is_monetization_enabled":true');
+            const tags = document.querySelector('meta[name="keywords"]')?.getAttribute('content')?.split(',').map(s => s.trim()).filter(tag => tag) || [];
             const thumbnail = document.querySelector('meta[property="og:image"]')?.getAttribute('content') || '';
             const channelId = document.querySelector('meta[property="og:url"]')?.getAttribute('content')?.split('/channel/')[1] || 'N/A';
             
@@ -69,7 +73,8 @@ app.get('/api/analyze', async (req, res) => {
 
     } catch (error) {
         console.error("Error during Puppeteer analysis:", error.message);
-        res.status(500).json({ error: 'Failed to analyze the URL. This can happen if the page structure has changed or the URL is invalid.' });
+        // Provide a more specific error message back to the front-end
+        res.status(500).json({ error: `Analysis failed: ${error.message}` });
     } finally {
         if (browser !== null) {
             await browser.close();
@@ -78,5 +83,5 @@ app.get('/api/analyze', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`Upgraded server with Puppeteer is running on port ${PORT}`);
+    console.log(`Final server version is running on port ${PORT}`);
 });
