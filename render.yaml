@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: yt-teacher-backend
+    env: node
+    plan: free
+    buildCommand: "npm install"
+    startCommand: "node server.js"
+    healthCheckPath: /
+    buildpacks:
+      - https://github.com/jontewks/puppeteer-heroku-buildpack
